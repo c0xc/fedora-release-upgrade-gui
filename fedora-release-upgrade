@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Check dependencies
-for d in zenity date; do
+for d in zenity date grep head tail df; do
     if ! type $d >/dev/null 2>&1; then
         echo "Dependency not found: $d" >&2
         exit 1
@@ -15,15 +15,29 @@ if [ ! -f "/etc/fedora-release" ]; then
     exit 1
 fi
 
-# sudo function
+# Check available disk space
+avail_var=$(df -k --output="avail" /var/ | tail -n 1)
+avail_var_g=$((avail_var/1024/1024))
+min_space_g=5
+if [[ $avail_var_g -lt $min_space_g ]]; then
+    zenity --error --text \
+        "You only have $avail_var_g GB of available disk space on /var."
+    exit 1
+fi
+
+# sudo helper
 function run_sudo
 {
-    file=$1
+    local file=$1
 
-    if [ -t 0 ]; then
+    if [ "$EUID" -eq 0 ]; then
+        # Already running as root
+        $file
+    elif [ -t 0 ]; then
         # Interactive mode (terminal)
         sudo "$file"
     else
+        # Show graphical password prompt
         if type gksu &>/dev/null; then
             gksu --su-mode "$file"
         elif type kdesu &>/dev/null; then
@@ -42,12 +56,12 @@ function run_sudo
 # Create script in /tmp
 cd /tmp/ || exit 1
 ts=$(date +%s)
-file=".tmp_script.$$.$ts.sh"
+file=".fedora-upgrade-script.tmp.$$.$ts.sh"
 if [ -e "$file" ]; then
     # File conflict
     exit 1
 fi
-cat << 'EOF' > "$file"
+cat <<'EOF' >"$file"
 #!/usr/bin/env bash
 
 # Temporary script
@@ -78,19 +92,49 @@ fi
 output=$(dnf install -y --best --allowerasing dnf-plugin-system-upgrade 2>&1)
 if [[ $? -ne 0 ]]; then
     text="Error updating system-upgrade plugin!"
-    text=$"$text"'\n'"$output"
-    zenity --error --text "$text"
+    text=$text$'\n\n'"$output"
+    echo "$text" | zenity --text-info --window-icon error
     exit 1
 fi
 
-# Download upgrade
-output=$(dnf system-upgrade download -y --best --allowerasing --releasever $NEXT_VERSION 2>&1)
+# Download/prepare upgrade
+output=$(dnf system-upgrade download -y --best --allowerasing --releasever "$NEXT_VERSION" 2>&1)
 if [[ $? -ne 0 ]]; then
+    # Upgrade preparation failed
+    # This could be an error like this one:
+    # package foo-1.2.3-4.fc20.noarch requires bar, but none of the providers can be installed.
+    # In this case, "foo" should be uninstalled.
+
+    # Extract first few interesting lines of output
+    # Nobody wants to read 100 almost identical lines/errors.
+    # So we cut off the rest. The full output is saved in a file.
+    short_output=$output
+    if [[ "$short_output" =~ ^Last\ metadata\ expiration\ check ]]; then
+        short_output=$(echo "$short_output" | tail -n +2)
+    fi
+    lines=$(echo -n "$short_output" | grep -c '^')
+    if [[ "$lines" -gt 5 ]]; then
+        short_output=$(echo "$short_output" | head -n 5)
+        short_output=$short_output$'\n...'
+    fi
+
+    # File for full output
     ts=$(date +%s)
-    file="/tmp/TMP_INFO_FEDORA_UPGRADE_$ts"
+    file="/tmp/FEDORA_UPGRADE_OUTPUT.$$.$ts.txt"
+
+    # Show error
+    text="Error preparing system upgrade!"
+    text=$text$'\n\n'"$short_output"
+    text=$text$'\n\n'"You'll find the full command output in this file: $file"
+    echo "$text" | zenity --text-info --window-icon error
+
+    # Save full output
     echo "$output" >"$file"
-    text="Error downloading system upgrade! See: $file"
-    zenity --error --text "$text"
+    if [[ $? -ne 0 ]]; then
+        zenity --error --text "Error saving output to file! See next dialog."
+        echo "$output" | zenity --text-info --window-icon error
+    fi
+
     exit 1
 fi
 
@@ -112,6 +156,11 @@ fi
 
 
 EOF
+if [[ $? -ne 0 ]]; then
+    zenity --error --text \
+        "Error creating temporary script file in /tmp:"$'\n'"$file"
+    exit 1
+fi
 chmod +x "$file"
 
 # Run with sudo (gui support, not in terminal)
