@@ -53,6 +53,9 @@ No installation required, just run the script file.
 In most cases, it should be possible to execute the script file
 (e.g., in a file manager like Caja) without first opening a terminal window.
 
+In Caja, open the file "Properties" dialog, go to the "Permissions" tab
+and check "Allow executing file as program".
+
 It'll first try to get root access, which is required to initiate the upgrade
 process. This is why it first asks for a password.
 Don't worry, it'll ask you if you actually want to upgrade to the next release
@@ -71,6 +74,10 @@ If the script is not run in a terminal, it'll first try gksu/kdesu
 rather than the user's (sudo) password.
 This is because sudo usually isn't configured properly
 in default Fedora installations.
+
+Note that after the release upgrade files have been downloaded,
+this tool will ask a second time if the upgrade process should really be started.
+If you don't confirm, the system will not be changed.
 
 To manually verify if the upgrade was completed during the reboot,
 you could run something like:
