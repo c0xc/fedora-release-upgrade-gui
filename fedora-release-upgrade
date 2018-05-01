@@ -8,6 +8,13 @@ for d in zenity date; do
     fi
 done
 
+# Run on Fedora only
+if [ ! -f "/etc/fedora-release" ]; then
+    zenity --error --text \
+        "This tool runs on Fedora only. You appear to be running a different distribution."
+    exit 1
+fi
+
 # sudo function
 function run_sudo
 {
@@ -17,14 +24,14 @@ function run_sudo
         # Interactive mode (terminal)
         sudo "$file"
     else
-        if type kdesudo >/dev/null 2>&1; then
-            kdesudo -c "$file"
-        elif type kdesu >/dev/null 2>&1; then
-            kdesu -n -c "$file"
-        elif type gksudo >/dev/null 2>&1; then
-            gksudo "$file"
-        elif type gksu >/dev/null 2>&1; then
+        if type gksu &>/dev/null; then
             gksu --su-mode "$file"
+        elif type kdesu &>/dev/null; then
+            kdesu -n -c "$file"
+        elif type gksudo &>/dev/null; then
+            gksudo "$file"
+        elif type kdesudo &>/dev/null; then
+            kdesudo -c "$file"
         else
             zenity --error --text \
                 "gksu not found, cannot sudo non-interactively"
@@ -53,16 +60,10 @@ if [[ ! -e /etc/fedora-release ]]; then
 fi
 
 # Check old release version
-OLD_VERSION=24
 CURRENT_VERSION=$(cat /etc/os-release | grep VERSION_ID | cut -f2 -d'=')
 NEXT_VERSION=$((CURRENT_VERSION+1))
 if [[ ! "$CURRENT_VERSION" =~ ^[0-9]+$ ]]; then
     text="Error determining release version."
-    zenity --error --text "$text"
-    exit 1
-fi
-if [[ -n "$OLD_VERSION" && "$OLD_VERSION" != "$CURRENT_VERSION" ]]; then
-    text="Current Fedora release version is $CURRENT_VERSION (expected $OLD_VERSION)."
     zenity --error --text "$text"
     exit 1
 fi
