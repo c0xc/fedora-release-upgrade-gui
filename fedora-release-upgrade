@@ -89,7 +89,10 @@ if [[ $? -ne 0 ]]; then
 fi
 
 # Update system-upgrade plugin
-output=$(dnf install -y --best --allowerasing dnf-plugin-system-upgrade 2>&1)
+output=$(dnf install \
+-y --best --allowerasing dnf-plugin-system-upgrade 2>&1 | \
+zenity --progress --pulsate --auto-close \
+)
 if [[ $? -ne 0 ]]; then
     text="Error updating system-upgrade plugin!"
     text=$text$'\n\n'"$output"
@@ -98,7 +101,10 @@ if [[ $? -ne 0 ]]; then
 fi
 
 # Download/prepare upgrade
-output=$(dnf system-upgrade download -y --best --allowerasing --releasever "$NEXT_VERSION" 2>&1)
+output=$(dnf system-upgrade \
+download -y --best --allowerasing --releasever "$NEXT_VERSION" 2>&1 | \
+zenity --progress --pulsate --auto-close \
+)
 if [[ $? -ne 0 ]]; then
     # Upgrade preparation failed
     # This could be an error like this one:

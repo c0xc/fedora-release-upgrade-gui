@@ -114,7 +114,7 @@ So there are quite a few things that it *could* do (but doesn't).
 Author
 ------
 
-Philip Seeger (philip@philip-seeger.de)
+Philip Seeger (philip@c0xc.net)
 
 
 
