@@ -82,7 +82,7 @@ if [[ ! "$CURRENT_VERSION" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
-# Try to determine latest stable release
+# Try to determine latest stable release(s)
 function get_releases {
     local mirror
     shopt -s extglob
@@ -107,7 +107,10 @@ function get_releases {
 
     curl -skL --list-only "ftp://$mirror/releases/"
 }
-available_releases=$(get_releases)
+for i in {1..5}; do
+    available_releases=$(get_releases)
+    [ -n "$available_releases" ] && break
+done
 if [ -z "$available_releases" ]; then
     zenity --warning --text "Failed to load list of available releases."
 else
