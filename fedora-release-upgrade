@@ -114,7 +114,7 @@ done
 if [ -z "$available_releases" ]; then
     zenity --warning --text "Failed to load list of available releases."
 else
-    if ! (echo "$available_releases" | grep -q "$NEXT_VERSION"); then
+    if ! (echo "$available_releases" | grep -qw "$NEXT_VERSION"); then
         zenity --error --text "This is Fedora version $CURRENT_VERSION. A newer release could not be found."
         exit 1
     fi
