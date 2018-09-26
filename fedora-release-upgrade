@@ -66,20 +66,55 @@ cat <<'EOF' >"$file"
 
 # Temporary script
 
-# Check if Fedora
+# Check if OS is Fedora
 if [[ ! -e /etc/fedora-release ]]; then
     text="This script is for Fedora only."
     zenity --error --text "$text"
     exit 1
 fi
 
-# Check old release version
+# Determine old release version
 CURRENT_VERSION=$(cat /etc/os-release | grep VERSION_ID | cut -f2 -d'=')
 NEXT_VERSION=$((CURRENT_VERSION+1))
 if [[ ! "$CURRENT_VERSION" =~ ^[0-9]+$ ]]; then
     text="Error determining release version."
     zenity --error --text "$text"
     exit 1
+fi
+
+# Try to determine latest stable release
+function get_releases {
+    local mirror
+    shopt -s extglob
+
+    # Get mirror redirect
+    mirror=$(curl -sI http://download.fedoraproject.org | grep ^Location)
+    if [[ $? -ne 0 ]]; then
+        return
+    fi
+
+    # Cut "Location: " and trim
+    mirror=${mirror#*: }
+    mirror="${mirror#"${mirror%%[![:space:]]*}"}"
+    mirror="${mirror%"${mirror##*[![:space:]]}"}"
+    if [ -z "$mirror" ]; then
+        return
+    fi
+
+    # Cut "http://" prefix and slash
+    mirror=${mirror#*://}
+    mirror=${mirror%%+(/)}
+
+    curl -skL --list-only "ftp://$mirror/releases/"
+}
+available_releases=$(get_releases)
+if [ -z "$available_releases" ]; then
+    zenity --warning --text "Failed to load list of available releases."
+else
+    if ! (echo "$available_releases" | grep -q "$NEXT_VERSION"); then
+        zenity --error --text "This is Fedora version $CURRENT_VERSION. A newer release could not be found."
+        exit 1
+    fi
 fi
 
 # Ask
