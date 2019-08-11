@@ -1,33 +1,108 @@
-#!/usr/bin/env bash
+#!/bin/bash
+
+# Initialize variables, change into /tmp
+cd /tmp/ || exit 1
+ts=$(date +%s)
+OUT_FILE=/tmp/"fedora-upgrade-dnf-output-$$-$ts.log"
+GUI=0
+[[ -n "$DISPLAY" ]] && GUI=1
+CLEAN=0
+DEBUG=0
+KEEP=0
+HELP=0
 
 # Check dependencies
-for d in zenity date grep head tail df; do
-    if ! type $d >/dev/null 2>&1; then
+for d in awk date grep cut head tail df tee curl; do
+    if ! type $d &>/dev/null; then
         echo "Dependency not found: $d" >&2
         exit 1
     fi
 done
 
-# Run on Fedora only
-if [ ! -f "/etc/fedora-release" ]; then
-    zenity --error --text \
-        "This tool runs on Fedora only. You appear to be running a different distribution."
-    exit 1
+################################################################################
+
+# Options
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -d|--debug)
+            DEBUG=1
+            ;;
+        --gui)
+            GUI=1
+            ;;
+        --cli)
+            GUI=0
+            ;;
+        --clean)
+            CLEAN=1
+            ;;
+        -o|--output)
+            OUT_FILE=$2
+            shift
+            ;;
+        -h|--help)
+            HELP=1
+            ;;
+        --keep)
+            KEEP=1
+            ;;
+        --)
+            break
+            ;;
+        *)
+            echo "Error parsing arguments" >&2
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+# Check for zenity dependency if in GUI mode
+if [[ $GUI -eq 1 ]]; then
+    if ! type zenity &>/dev/null; then
+        echo "Dependency not found: $d" >&2
+        exit 1
+    fi
 fi
 
-# Check available disk space
-avail_var=$(df -k --output="avail" /var/ | tail -n 1)
-avail_var_g=$((avail_var/1024/1024))
-min_space_g=5
-if [[ $avail_var_g -lt $min_space_g ]]; then
-    zenity --error --text \
-        "You only have $avail_var_g GB of available disk space on /var."
-    exit 1
+################################################################################
+
+# Help
+if [[ $HELP -eq 1 ]]; then
+    read -r -d '' text <<'    EOF'
+    Fedora release upgrade script
+
+    Usage:
+    NAME
+    NAME --output /var/tmp/fedora-upgrade.log
+    NAME [--gui|--cli]
+    NAME --clean
+    NAME --debug
+
+    It runs in GUI mode by default (if $DISPLAY set).
+    In GUI mode, it shows a dialog asking if the next release version should be downloaded and installed. If you deny, nothing happens.
+    In a terminal environment without display (or with --cli), all messages and questions are shown in your terminal.                      
+
+    It creates a temporary script that will install the dnf upgrade plugin and run the upgrade process, which is why the first thing it does is ask for the root password. Well, unless you're using the sudo option NOPASSWD.
+    Don't worry, it'll ask before starting the download and after that, it'll ask again before rebooting the system.
+
+    Use the --clean option if a previous download was interrupted.
+
+    Use the --output argument to specify a dnf log file. By default, the dnf output will be saved to a file in /tmp.
+
+
+    EOF
+    text=$(echo "$text" | sed -r 's!^\s{4}!!')
+    text=$(echo "$text" | sed -r "s!\bNAME\b!$0!")
+
+    info "$text"
+    exit
 fi
+
+################################################################################
 
 # sudo helper
-function run_sudo
-{
+function run_sudo {
     local file=$1
 
     if [ "$EUID" -eq 0 ]; then
@@ -53,24 +128,113 @@ function run_sudo
     fi
 }
 
-# Create script in /tmp
-cd /tmp/ || exit 1
-ts=$(date +%s)
-file=".fedora-upgrade-script.tmp.$$.$ts.sh"
-if [ -e "$file" ]; then
-    # File conflict
+# info and question helper
+if [[ $GUI -eq 1 ]]; then
+    function create_iq_func {
+        function info {
+            local msg=$*
+            zenity --info --text "$msg"
+        }
+        function err {
+            local msg=$*
+            zenity --error --text "$msg"
+        }
+        function blub {
+            zenity --text-info
+        }
+        function ask {
+            local q=$*
+            zenity --question --text "$q"
+        }
+        function dooo {
+            zenity --progress --pulsate --auto-close
+        }
+    }
+else
+    function create_iq_func {
+        function info {
+            local msg=$*
+            echo "[INFO] $msg"
+        }
+        function err {
+            local msg=$*
+            echo "[ERROR] $msg"
+        }
+        function blub {
+            cat
+        }
+        function ask {
+            local q=$*
+            read -p "$q " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                return 0
+            else
+                return 1
+            fi
+        }
+        function dooo {
+            cat
+        }
+    }
+fi
+create_iq_func
+
+################################################################################
+
+# Run on Fedora only
+if [ ! -f "/etc/fedora-release" ]; then
+    err "This tool runs on Fedora only. You appear to be running a different distribution."
     exit 1
 fi
-cat <<'EOF' >"$file"
-#!/usr/bin/env bash
+
+################################################################################
+
+# Check available disk space
+avail_var=$(df -k --output="avail" /var/ | tail -n 1)
+avail_var_g=$((avail_var/1024/1024))
+[[ $DEBUG -eq 1 ]] && info "$avail_var_g GB available on /var"
+min_space_g=5
+if [[ $avail_var_g -lt $min_space_g ]]; then
+    err "You only have $avail_var_g GB of available disk space on /var."
+    exit 1
+fi
+
+################################################################################
+
+# Create temporary script
+file=".fedora-upgrade-script.tmp.$$.$ts.sh"
+if [ -e "$file" ]; then
+    err "File conflict: $file"
+    exit 2
+fi
+read -r -d '' script <<'EOF'
+#!/bin/bash
+set -o pipefail # ${PIPESTATUS[0]}
 
 # Temporary script
+
+###FUNC###
+
+###VARS###
 
 # Check if OS is Fedora
 if [[ ! -e /etc/fedora-release ]]; then
     text="This script is for Fedora only."
-    zenity --error --text "$text"
+    err "$text"
     exit 1
+fi
+
+# Clean up package cache
+if [[ $CLEAN -eq 1 ]]; then
+    dnf system-upgrade clean
+    if [[ $? -ne 0 ]]; then
+        err "Failed to clean package cache"
+        exit 1
+    else
+        info "Cleaned up package cache"
+        exit
+    fi
 fi
 
 # Determine old release version
@@ -78,7 +242,7 @@ CURRENT_VERSION=$(cat /etc/os-release | grep VERSION_ID | cut -f2 -d'=')
 NEXT_VERSION=$((CURRENT_VERSION+1))
 if [[ ! "$CURRENT_VERSION" =~ ^[0-9]+$ ]]; then
     text="Error determining release version."
-    zenity --error --text "$text"
+    err "$text"
     exit 1
 fi
 
@@ -112,38 +276,48 @@ for i in {1..5}; do
     [ -n "$available_releases" ] && break
 done
 if [ -z "$available_releases" ]; then
-    zenity --warning --text "Failed to load list of available releases."
+    err "Failed to load list of available releases."
 else
     if ! (echo "$available_releases" | grep -qw "$NEXT_VERSION"); then
-        zenity --error --text "This is Fedora version $CURRENT_VERSION. A newer release could not be found."
+        err "This is Fedora version $CURRENT_VERSION. A newer release could not be found."
         exit 1
     fi
 fi
 
 # Ask
-zenity --question --text "This is Fedora version $CURRENT_VERSION. Download upgrade to $NEXT_VERSION now?"
+ask "This is Fedora version $CURRENT_VERSION. Download upgrade to $NEXT_VERSION now?"
 if [[ $? -ne 0 ]]; then
     exit
 fi
 
 # Update system-upgrade plugin
+[[ $DEBUG -eq 1 ]] && info "First - installing/updating system-upgrade plugin"
 output=$(dnf install \
--y --best --allowerasing dnf-plugin-system-upgrade 2>&1 | \
-zenity --progress --pulsate --auto-close \
+    -y --best --allowerasing dnf-plugin-system-upgrade 2>&1 | \
+    tee -a $OUT_FILE | \
+    dooo \
 )
-if [[ $? -ne 0 ]]; then
+if [[ $? -ne 0 || ${PIPESTATUS[0]} -ne 0 ]]; then
     text="Error updating system-upgrade plugin!"
     text=$text$'\n\n'"$output"
-    echo "$text" | zenity --text-info --window-icon error
+    echo "$text" | blub
     exit 1
+else
+    [[ $DEBUG -eq 1 ]] && echo "$output" | blub
 fi
 
 # Download/prepare upgrade
-output=$(dnf system-upgrade \
-download -y --best --allowerasing --releasever "$NEXT_VERSION" 2>&1 | \
-zenity --progress --pulsate --auto-close \
-)
-if [[ $? -ne 0 ]]; then
+cmd="dnf system-upgrade download -y --best --allowerasing --releasever $NEXT_VERSION"
+if [[ $DEBUG -eq 1 ]]; then
+    info "Starting download (this will take a long time): $cmd"
+    [[ -n "$OUT_FILE" ]] && info "The dnf output will be saved to: $OUT_FILE"
+    output=$($cmd | tee -a $OUT_FILE | tee /dev/tty)
+else
+    echo "Downloading release upgrade files. This will take a long time. Watch /var/log/dnf.log if you're curious."
+    [[ -n "$OUT_FILE" ]] && echo "The dnf output will be saved to: $OUT_FILE"
+    output=$($cmd 2>&1 | tee -a $OUT_FILE | dooo)
+fi
+if [[ $? -ne 0 || ${PIPESTATUS[0]} -ne 0 ]]; then
     # Upgrade preparation failed
     # This could be an error like this one:
     # package foo-1.2.3-4.fc20.noarch requires bar, but none of the providers can be installed.
@@ -170,48 +344,69 @@ if [[ $? -ne 0 ]]; then
     text="Error preparing system upgrade!"
     text=$text$'\n\n'"$short_output"
     text=$text$'\n\n'"You'll find the full command output in this file: $file"
-    echo "$text" | zenity --text-info --window-icon error
+    echo "$text" | blub
 
     # Save full output
     echo "$output" >"$file"
     if [[ $? -ne 0 ]]; then
-        zenity --error --text "Error saving output to file! See next dialog."
-        echo "$output" | zenity --text-info --window-icon error
+        err "Error saving output to file! See next message..."
+        echo "$output" | blub
     fi
 
     exit 1
 fi
 
 # Ask
-zenity --question --text "Upgrade to version $NEXT_VERSION downloaded successfully. Reboot and install upgrade now?"
+ask "Upgrade to version $NEXT_VERSION downloaded successfully. Reboot and install upgrade now?"
 if [[ $? -ne 0 ]]; then
     exit
 fi
 
 # Start upgrade
-output=$(dnf system-upgrade reboot 2>&1)
-if [[ $? -ne 0 ]]; then
+output=$(dnf system-upgrade reboot 2>&1 | tee -a $OUT_FILE)
+if [[ $? -ne 0 || ${PIPESTATUS[0]} -ne 0 ]]; then
     text="Error starting system upgrade!"
-    text=$"$text"'\n'"$output"
-    zenity --error --text "$text"
+    text=$"$text"$'\n'"$output"
+    err "$text"
+    echo -e "From dnf.log:\n$(tail -n 20 /var/log/dnf.log)" | blub
     exit 1
 fi
 
 
 
 EOF
+
+# Complete script template with functions and variables
+func_str=$(typeset -f create_iq_func)
+func_str+=$'\n'"create_iq_func"
+script=$(echo "$script" | awk -v r="$func_str" '{gsub(/^###FUNC###$/,r)}1')
 if [[ $? -ne 0 ]]; then
-    zenity --error --text \
-        "Error creating temporary script file in /tmp:"$'\n'"$file"
+    err "Error creating temporary script (failed to copy function)"
+    exit 1
+fi
+vars_str="GUI=$GUI DEBUG=$DEBUG CLEAN=$CLEAN OUT_FILE=$OUT_FILE"
+script=$(echo "$script" | awk -v r="$vars_str" '{gsub(/^###VARS###$/,r)}1')
+if [[ $? -ne 0 ]]; then
+    err "Error creating temporary script (failed to copy variables)"
+    exit 1
+fi
+
+# Create temporary script file
+echo "$script" >"$file"
+if [[ $? -ne 0 ]]; then
+    err "Error creating temporary script file in /tmp:"$'\n'"$file"
     exit 1
 fi
 chmod +x "$file"
 
 # Run with sudo (gui support, not in terminal)
+echo "Now requesting sudo to run upgrade script: /tmp/$file"
+echo "Don't worry, it'll ask before downloading the upgrade."
+echo "(If you don't trust me, read the script file.)"
 run_sudo "./$file"
 
 # Clean up
-rm "$file"
+[[ $KEEP -eq 0 ]] && rm "$file"
 
 
 

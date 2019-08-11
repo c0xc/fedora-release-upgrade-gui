@@ -6,6 +6,9 @@ A simple script for starting a Fedora release upgrade.
 It uses Zenity to show a dialog asking if the next release version
 should be downloaded and installed. If you deny, nothing happens.
 
+In a terminal environment without display (or with --cli),
+all messages and questions are shown in your terminal.
+
 No command line voodoo required:
 This tool is supposed to allow an end user to upgrade Fedora using a gui,
 without having to run commands as root (as described in the online documentation).
@@ -16,6 +19,8 @@ and assumes that the user wants to upgrade to the next one.
 > There's currently no check in the script that would determine
 if the next release version is a stable release.
 > **An upgrade to an unstable release is not recommended**.
+> Even though personal files are not touched during a release upgrade,
+**it is recommended to have a backup.**
 
 
 
@@ -56,12 +61,12 @@ In most cases, it should be possible to execute the script file
 In Caja, open the file "Properties" dialog, go to the "Permissions" tab
 and check "Allow executing file as program".
 
-It'll first try to get root access, which is required to initiate the upgrade
+It'll first try to get root access, which is required to prepare the upgrade
 process. This is why it first asks for a password.
 Don't worry, it'll ask you if you actually want to upgrade to the next release
 (it'll say which release that would be) before actually doing anything.
 
-It'll use gksu or similar to show a password prompt.
+It'll use gksu or similar to show a password prompt (in GUI mode).
 If that doesn't work for some reason, you can still run the script in a
 terminal window and it'll automatically ask for a sudo password.
 
@@ -82,6 +87,33 @@ If you don't confirm, the system will not be changed.
 To manually verify if the upgrade was completed during the reboot,
 you could run something like:
 - `cinnamon-settings info`
+- ... or you could just check /etc/fedora-release.
+
+
+
+What
+----
+
+What does the script actually do and why does it ask for the sudo password?
+
+The first thing this script does is ask for the sudo password.
+To be more precise, it creates a temporary script in /tmp and
+attempts to run that script as root.
+That script will first ask you if it can go ahead with the download process
+and then it'll ask again before rebooting, so if if you don't confirm ("Y"),
+nothing will happen. If you don't trust me (and maybe you shouldn't)
+you can read the temporary script before typing in your sudo password.
+
+Before it can download the release upgrade files, it has to make sure
+the system-upgrade plugin is installed, which is why it needs to be root.
+
+It goes through these steps:
+
+0. Install system-upgrade plugin.
+1. Download release files (may take over an hour).
+2. Ask for confirmation and reboot to start the upgrade process (may take even longer).
+
+If all goes well, the system will boot the new release after the offline upgrade process is complete.
 
 
 
@@ -91,6 +123,8 @@ Bugs
 This is a very simple helper script that ideally shouldn't be necessary at all.
 So there are quite a few things that it *could* do (but doesn't).
 
+- The release check may fail from time to time
+  ("A newer release could not be found").
 - It should check online for the latest **stable** release.
 - It could do some additional cleanup work.
 - It could show some sort of message after the system has been rebooted
