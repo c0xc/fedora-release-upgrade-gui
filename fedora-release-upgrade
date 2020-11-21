@@ -12,7 +12,7 @@ KEEP=0
 HELP=0
 
 # Check dependencies
-for d in awk date grep cut head tail df tee curl; do
+for d in awk date grep cut head tail df tee curl wget; do
     if ! type $d &>/dev/null; then
         echo "Dependency not found: $d" >&2
         exit 1
@@ -257,24 +257,23 @@ function get_releases {
         return
     fi
 
-    # Cut "Location: " and trim
-    mirror=${mirror#*: }
-    mirror="${mirror#"${mirror%%[![:space:]]*}"}"
-    mirror="${mirror%"${mirror##*[![:space:]]}"}"
-    if [ -z "$mirror" ]; then
-        return
-    fi
+    # They took the FTP site offline
+    # ("nobody uses FTP nowadays, we don't even know what it is...")
+    # curl -skL --list-only "ftp://$mirror/releases/"
 
-    # Cut "http://" prefix and slash
-    mirror=${mirror#*://}
-    mirror=${mirror%%+(/)}
+    # HTTP listing available here:
+    # https://dl.fedoraproject.org/pub/fedora/linux/releases/
+    # It's just that HTTP directory listings aren't made for machines,
+    # but we can use wget, which has a spider function.
+    temp_dir=$(mktemp -d) || exit $?
+    releases_ls_url=https://dl.fedoraproject.org/pub/fedora/linux/releases/
+    (cd "$temp_dir" && wget --spider -r -l 1 --no-parent "$releases_ls_url" >/dev/null 2>&1) || exit $?
+    list=$(cd "$temp_dir" && ls dl.fedoraproject.org/pub/fedora/linux/releases/) || exit $?
 
-    curl -skL --list-only "ftp://$mirror/releases/"
+    echo "$list"
 }
-for i in {1..5}; do
-    available_releases=$(get_releases)
-    [ -n "$available_releases" ] && break
-done
+available_releases=$(get_releases)
+echo -e "List of available releases:\n$available_releases" >>$OUT_FILE
 if [ -z "$available_releases" ]; then
     err "Failed to load list of available releases."
 else
@@ -398,6 +397,9 @@ if [[ $? -ne 0 ]]; then
     exit 1
 fi
 chmod +x "$file"
+
+# Show log file path
+echo "Run tail -f $OUT_FILE in another terminal to see what's happening..."
 
 # Run with sudo (gui support, not in terminal)
 echo "Now requesting sudo to run upgrade script: /tmp/$file"
