@@ -8,3 +8,20 @@ Error:
   - cannot install the best candidate for the job
   - mate-desktop-configs-1.26.0-4.fc35.noarch does not belong to a distupgrade repository
 (try to add '--skip-broken' to skip uninstallable packages)
+
+...
+
+=>
+
+Removed:
+  f35-backgrounds-mate-35.0.1-2.fc35.noarch                                     
+  mate-desktop-1.26.0-4.fc35.x86_64                                             
+  mate-desktop-configs-1.26.0-4.fc35.noarch                                     
+  mate-system-monitor-1.26.0-1.fc35.x86_64                                      
+  mate-user-guide-1.26.0-1.fc35.noarch                                          
+
+...
+
+Using systemd-oomd is dangerous for mate-desktop because it can kill the whole X-session because of missing cgroups support.
+
+https://bugzilla.redhat.com/show_bug.cgi?id=2078108

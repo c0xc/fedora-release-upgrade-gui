@@ -313,6 +313,7 @@ else
 fi
 
 # Download/prepare upgrade
+err=0
 cmd="dnf system-upgrade download -y --best --allowerasing --releasever $NEXT_VERSION"
 if [[ $DEBUG -eq 1 ]]; then
     info "Starting download (this will take a long time): $cmd"
@@ -324,6 +325,7 @@ else
     output=$($cmd 2>&1 | tee -a $OUT_FILE | dooo)
 fi
 if [[ $? -ne 0 || ${PIPESTATUS[0]} -ne 0 ]]; then
+    err=1
     # Upgrade preparation failed
     # This could be an error like this one:
     # package foo-1.2.3-4.fc20.noarch requires bar, but none of the providers can be installed.
@@ -342,7 +344,49 @@ if [[ $? -ne 0 || ${PIPESTATUS[0]} -ne 0 ]]; then
     lines=$(echo -n "$short_output" | grep -c '^')
     if [[ "$lines" -gt 10 ]]; then
         short_output=$(echo "$output" | head -n 1)$'\n...\n'$(echo "$output" | tail -n 10)
+    fi
 
+    # Does the error mention a problem with a specific package?
+    # But I'm too afraid to remove "any" package.
+    # For example, if a conflict with mate-desktop-configs is reported...
+    #  Problem: cannot install the best update candidate for package mate-desktop-configs-1.26.0-4.fc35.noarch
+    # Uninstalling this package will also uninstall mate-desktop!
+    problem_line=$(echo "$output" | grep '^\s*Problem:')
+    if ! [[ -z "$problem_line" ]]; then
+        package_name=$(echo "$problem_line" | grep package | sed 's/.*package //')
+        if ! [[ -z "$package_name" ]]; then
+            text="Error preparing system upgrade!"
+            text=$text$'\n'"$problem_line"
+            text=$text$'\n\n'"Please check this package => $package_name"
+            text=$text$'\n\n'"Try to skip uninstallable packages?"
+            ask "$text"
+            #if [[ $? -eq 0 ]]; then
+            #    if [[ $DEBUG -eq 1 ]]; then
+            #        output=$(dnf erase -y "$package_name" 2>&1 | tee -a $OUT_FILE | tee /dev/tty)
+            #    else
+            #        output=$(dnf erase -y "$package_name" 2>&1 | tee -a $OUT_FILE | dooo)
+            #    fi
+            #    echo "Done. Now try again (restart this script)." | blub
+            #    echo "$output"
+            #    exit
+            #fi
+            if [[ $? -eq 0 ]]; then
+                if [[ $DEBUG -eq 1 ]]; then
+                    output=$($cmd --skip-broken 2>&1 | tee -a $OUT_FILE | tee /dev/tty)
+                else
+                    output=$($cmd --skip-broken 2>&1 | tee -a $OUT_FILE | dooo)
+                fi
+                if [[ $? -eq 0 ]]; then
+                    err=0
+                else
+                    echo "Done. But this didn't work either." | blub
+                    echo "$output"
+                    exit 1
+                fi
+            fi
+        else
+            echo "$problem_line" | blub
+        fi
     fi
 
     # File for full output
@@ -350,20 +394,24 @@ if [[ $? -ne 0 || ${PIPESTATUS[0]} -ne 0 ]]; then
     file="/tmp/FEDORA_UPGRADE_OUTPUT.$$.$ts.txt"
     echo "$output" >"$file"
 
-    # Show error
-    text="Error preparing system upgrade!"
-    text=$text$'\n\n'"$short_output"
-    text=$text$'\n\n'"You'll find the full command output in this file: $file"
-    echo "$text" | blub
+    if [[ $err -ne 0 ]]; then
 
-    # Save full output
-    echo "$output" >"$file"
-    if [[ $? -ne 0 ]]; then
-        err "Error saving output to file! See next message..."
-        echo "$output" | blub
+        # Show error
+        text="Error preparing system upgrade!"
+        text=$text$'\n\n'"$short_output"
+        text=$text$'\n\n'"You'll find the full command output in this file: $file"
+        echo "$text" | blub
+
+        # Save full output
+        echo "$output" >"$file"
+        if [[ $? -ne 0 ]]; then
+            err "Error saving output to file! See next message..."
+            echo "$output" | blub
+        fi
+
+        exit 1
+
     fi
-
-    exit 1
 fi
 
 # Ask
