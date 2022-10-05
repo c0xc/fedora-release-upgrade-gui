@@ -49,6 +49,15 @@ If there's an official upgrade mechanism, a graphical upgrade tool that works,
 definitely use that instead of this script.
 This tool is a simple alternative to provide an upgrade GUI.
 
+Another reason for using this script may be that the official tool
+sometimes fails, showing an incomplete error message:
+
+    Could not depsolve transaction; 1 problem detected:
+
+What's the poor user supposed to do with that?
+This script might help. Although it could also fail, it should at least
+display the complete error message (which is also written to the log file).
+
 
 
 Installation

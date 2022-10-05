@@ -147,7 +147,10 @@ if [[ $GUI -eq 1 ]]; then
             zenity --question --text "$q"
         }
         function dooo {
-            zenity --progress --pulsate --auto-close
+            local out_file=$(mktemp)
+            cat - | tee "$out_file" | \
+            zenity --progress --pulsate --auto-close >/dev/null
+            cat "$out_file"
         }
     }
 else
@@ -217,6 +220,10 @@ set -o pipefail # ${PIPESTATUS[0]}
 ###FUNC###
 
 ###VARS###
+
+LANG=en_US.UTF-8
+LANG=en_CA
+export LANG
 
 # Check if OS is Fedora
 if [[ ! -e /etc/fedora-release ]]; then
@@ -321,6 +328,9 @@ if [[ $? -ne 0 || ${PIPESTATUS[0]} -ne 0 ]]; then
     # This could be an error like this one:
     # package foo-1.2.3-4.fc20.noarch requires bar, but none of the providers can be installed.
     # In this case, "foo" should be uninstalled.
+    if [[ -z "$output" ]]; then
+        output=$(cat "$OUT_FILE")
+    fi
 
     # Extract first few interesting lines of output
     # Nobody wants to read 100 almost identical lines/errors.
@@ -330,14 +340,15 @@ if [[ $? -ne 0 || ${PIPESTATUS[0]} -ne 0 ]]; then
         short_output=$(echo "$short_output" | tail -n +2)
     fi
     lines=$(echo -n "$short_output" | grep -c '^')
-    if [[ "$lines" -gt 5 ]]; then
-        short_output=$(echo "$short_output" | head -n 5)
-        short_output=$short_output$'\n...'
+    if [[ "$lines" -gt 10 ]]; then
+        short_output=$(echo "$output" | head -n 1)$'\n...\n'$(echo "$output" | tail -n 10)
+
     fi
 
     # File for full output
     ts=$(date +%s)
     file="/tmp/FEDORA_UPGRADE_OUTPUT.$$.$ts.txt"
+    echo "$output" >"$file"
 
     # Show error
     text="Error preparing system upgrade!"
